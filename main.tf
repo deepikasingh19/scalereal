@@ -1,5 +1,9 @@
+provider "aws" {
+  region = "us-east-1"
+}
+
 resource "aws_iam_role" "iam_for_lambda" {
-  name = "iam_for_lambda"
+  name = "${var.role_name}"
 
   assume_role_policy = <<EOF
 {
@@ -72,7 +76,7 @@ resource "aws_lambda_function" "test_lambda" {
   function_name = "createItem"
   role          = aws_iam_role.iam_for_lambda.arn
   handler       = "lambda_function.lambda_handler"
-  lambda_timeout= "120"
+  lambda_timeout= "${var.lambda_timeout}"
   source_code_hash = filebase64sha256("dd-test.py")
   runtime = "python3.8"
 
@@ -83,7 +87,7 @@ resource "aws_lambda_function" "test_lambda2" {
   function_name = "readItem"
   role          = aws_iam_role.iam_for_lambda.arn
   handler       = "lambda_function.lambda_handler"
-  lambda_timeout= "120"
+  lambda_timeout= "${var.lambda_timeout}"
   source_code_hash = filebase64sha256("dd-test.py")
   runtime = "python3.8"
 
@@ -94,26 +98,27 @@ resource "aws_lambda_function" "test_lambda3" {
   function_name = "updateItem"
   role          = aws_iam_role.iam_for_lambda.arn
   handler       = "lambda_function.lambda_handler"
-  lambda_timeout= "120"
+  lambda_timeout= "${var.lambda_timeout}"
   source_code_hash = filebase64sha256("dd-test.py")
   runtime = "python3.8"
 
 }
 
-resource "aws_lambda_function" "test_lambda3" {
+resource "aws_lambda_function" "test_lambda4" {
   filename      = "delete.py"
   function_name = "deleteItem"
   role          = aws_iam_role.iam_for_lambda.arn
   handler       = "lambda_function.lambda_handler"
-  lambda_timeout= "120"
+  lambda_timeout= "${var.lambda_timeout}"
   source_code_hash = filebase64sha256("dd-test.py")
   runtime = "python3.8"
 
 }
 
+
 resource "aws_s3_bucket" "bucket" {
 
-  bucket = "dd-test-nv"
+  bucket = "${var.bucket_name}"
   acl    = "private"   
   versioning {
     enabled = true
@@ -140,14 +145,76 @@ resource "aws_s3_bucket_notification" "bucket_notification" {
 }
 
 resource "aws_dynamodb_table" "basic-dynamodb-table" {
-  name           = "dd-test"
+  name           = "${var.table_name}"
   hash_key       = "id"
 }
 
 resource "aws_api_gateway_rest_api" "test" {
-  name = "dd-test"
+  name = "${var.api_name}"
 
   endpoint_configuration {
     types = ["REGIONAL"]
   }
+}
+
+resource "aws_api_gateway_api_key" "MyDemoApiKey" {
+  name = "dd-test"
+}
+
+resource "aws_api_gateway_usage_plan" "MyUsagePlan" {
+  name         = "my-usage-plan"
+  description  = "my description"
+  product_code = "MYCODE"
+
+  api_stages {
+    api_id = aws_api_gateway_rest_api.test.id
+    stage  = aws_api_gateway_deployment.MyDemoDeployment.stage_name
+  }
+
+  quota_settings {
+    limit  = 20
+    offset = 2
+    period = "WEEK"
+  }
+
+  throttle_settings {
+    burst_limit = 5
+    rate_limit  = 10
+  }
+}
+
+resource "aws_lambda_function" "authorizer" {
+  filename      = "lambda-function.zip"
+  function_name = "authorizer"
+  role          = aws_iam_role.iam_for_lambda.arn
+
+  source_code_hash = filebase64sha256("lambda-function.zip")
+}
+
+
+## Deploy Swagger file for the API
+locals{
+  "get_test_arn" = "${aws_lambda_function.get-tips-lambda.invoke_arn}"
+
+  "x-amazon-test-apigateway-integration" = <<EOF
+#
+uri = "${local.get_test_arn}"
+passthroughBehavior: when_no_match
+httpMethod: POST
+type: aws_proxy
+credentials: "${aws_iam_role.iam_for_lambda.arn}"
+EOF
+}
+
+data "template_file" test_api_swagger{
+  template = "${file("./swagger.json")}"
+
+  vars {
+    apiIntegration = "${indent(8, local.x-amazon-test-apigateway-integration)}"
+  }
+}
+
+resource "aws_api_gateway_deployment" "test-api-gateway-deployment" {
+  rest_api_id = "${aws_api_gateway_rest_api.test.id}"
+  stage_name  = "test"
 }
