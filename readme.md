@@ -1,3 +1,7 @@
+PREREQUISITE :
+
+Terraform installed in your local machine and connection to your AWS account using keys.
+
 1. Run the "main.tf" file to create all the resources required for this use case.
 2. Uploading the CSV file "dd-test.csv" with the contents to S# will add the items to DynamoDB table using the lambda function "create.py".
 3. API gateway is created using the swagger file which will create the appropriate methods and resources.
